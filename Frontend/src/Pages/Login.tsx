@@ -1,25 +1,46 @@
 import { useState } from 'react';
-import { useAuth } from '@/context/AuthContext'; // Importăm ce am făcut la Pasul 1
+import { useAuth } from '@/context/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+// ATENȚIE: Asigură-te că calea e corectă (noi am făcut src/lib/api.ts, tu ai pus utils)
+import { api } from '@/utils/api'; 
+import { toast } from 'sonner';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login } = useAuth(); // Luăm funcția de login din context
+  
+  // 1. IMPROVEMENT: Adăugăm starea de loading
+  const [loading, setLoading] = useState(false);
+  
+  const { login } = useAuth();
 
-  // Aici e magia TSX: Specificăm tipul evenimentului (e)
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); // Nu lăsa pagina să facă refresh
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    // SIMULARE BACKEND (Aici vom pune axios mai târziu)
-    console.log("Se încearcă logarea...", email, password);
+    // Pornim loading-ul
+    setLoading(true); 
 
-    // Simulăm că backend-ul ne-a dat OK
-    if(email && password) {
-        login("token_fals_12345", { id: "1", username: "Admin", role: "admin" });
+    try {
+      const res = await api.post('/auth/login', { email, password });
+      const { token, user } = res.data;
+      
+      toast.success('Te-ai autentificat cu succes!');
+      login(token, user); 
+      
+    } catch (error: any) { // Folosim 'any' sau un tip specific pentru eroare axios
+      console.log('Eroare la autentificare:', error);
+      
+      // 2. IMPROVEMENT: Încercăm să luăm mesajul de la backend
+      // Dacă backend-ul trimite { message: "Parolă greșită" }, îl afișăm pe ăla
+      const mesajEroare = error.response?.data?.message || 'Eroare la Server. Încearcă din nou.';
+      toast.error(mesajEroare);
+      
+    } finally {
+      // Indiferent dacă a reușit sau a crăpat, oprim loading-ul
+      setLoading(false);
     }
   };
 
@@ -37,9 +58,11 @@ export default function Login() {
                 <Label htmlFor="email">Email</Label>
                 <Input 
                     id="email" 
+                    type="email" // Ajută browserul să valideze formatul de email
                     placeholder="admin@parcare.ro" 
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)} // TS știe automat că e un input text
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={loading} // Blocăm inputul în timpul încărcării
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -49,9 +72,15 @@ export default function Login() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    disabled={loading} // Blocăm inputul
                 />
               </div>
-              <Button className="w-full mt-4" type="submit">Autentificare</Button>
+              
+              {/* Butonul arată "Se încarcă..." și e blocat cât timp așteptăm */}
+              <Button className="w-full mt-4" type="submit" disabled={loading}>
+                {loading ? 'Se verifică...' : 'Autentificare'}
+              </Button>
+            
             </div>
           </form>
         </CardContent>

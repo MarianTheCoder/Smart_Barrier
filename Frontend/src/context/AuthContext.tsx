@@ -5,7 +5,6 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 interface User {
   id: string;
   username: string;
-  role: 'admin' | 'user'; // Poate fi doar una din astea două
 }
 
 // 2. Definim ce funcții și date oferim în toată aplicația

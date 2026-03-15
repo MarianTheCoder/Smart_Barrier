@@ -10,6 +10,7 @@ app.use(express.json());
 app.use(cors());
 
 // routes
+app.use("/ping", (_, res) => res.send("pong"));
 app.use("/auth", authRoutes);
 
 const PORT = process.env.PORT || 3000;
