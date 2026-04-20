@@ -1,60 +1,136 @@
-// Varianta CORECTĂ pentru setările tale:
-import { createContext, useContext, useState, type ReactNode } from 'react';
-// 1. Definim forma User-ului (TSX specific)
-// Asta ne ajută ca mai târziu, dacă scriem user.nume, să primim eroare (că e username)
+import React, { createContext, useState, useEffect, useCallback } from "react";
+import api from "@/utils/AxiosInterceptor";
+import { jwtDecode } from "jwt-decode";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+
+export const AuthContext = createContext<any>(null);
+
 interface User {
   id: string;
-  username: string;
+  name: string;
 }
 
-// 2. Definim ce funcții și date oferim în toată aplicația
-interface AuthContextType {
-  user: User | null;          // Userul poate fi null (nelogat) sau obiectul User
-  token: string | null;       // Tokenul de la backend
-  login: (token: string, userData: User) => void; // Funcția de login
-  logout: () => void;         // Funcția de logout
-  isAuthenticated: boolean;   // Ești logat sau nu?
+interface MyTokenPayload {
+  id: string;
+  user: string; // matches decoded.user
+  iat: number; // issued at (standard JWT)
+  exp: number; // expiry (standard JWT)
 }
 
-// Creăm contextul gol la început
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const navigate = useNavigate();
 
-// Aceasta este componenta "Mamă" care va înveli toată aplicația
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  
-  // Citim din localStorage ca să nu te delogheze când dai Refresh la pagină
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  
-  const [user, setUser] = useState<User | null>(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  // 1. Minimal State
+  const [token, setToken] = useState(localStorage.getItem("token") || null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Trigger-ul nou
 
-  // Funcția care se apelează când backend-ul zice "OK, uite token-ul"
-  const login = (newToken: string, newUser: User) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // 2. Centralized Helper: Handles Decoding & Setting State
+  // This removes duplicate code from login/checkToken
+  const handleUserSession = useCallback((rawToken: string) => {
+    if (!rawToken) {
+      clearSession();
+      return;
+    }
+    try {
+      const decoded = jwtDecode<MyTokenPayload>(rawToken);
+      // Set User
+      setUser({
+        id: decoded.id,
+        name: decoded.user,
+      });
+
+      // Set Token
+      setToken(rawToken);
+      localStorage.setItem("token", rawToken);
+    } catch (err: any) {
+      toast.error("Eroare la procesarea token-ului. Te rugăm să te loghezi din nou.");
+      clearSession();
+    }
+  }, []);
+
+  // 3. Helper: Clear Session
+  const clearSession = useCallback(() => {
+    localStorage.removeItem("token");
+    setToken(null);
+    // FIX: Set to null instead of an object with null properties
+    setUser(null);
+  }, []);
+
+  // 4. On Mount: Check Validity
+  useEffect(() => {
+    const initAuth = async () => {
+      // console.log("Inițializăm autentificarea...");
+      const storedToken = localStorage.getItem("token");
+      if (!storedToken) {
+        setLoading(false);
+        return;
+      }
+      try {
+        // Verify with backend that token is still valid (not banned/expired)
+        const res = await api.get("/auth/checkToken");
+        if (res.data.token) {
+          handleUserSession(res.data.token);
+          if (refreshTrigger > 0) {
+            toast.success("Informațiile despre token au fost actualizate.");
+          }
+        } else {
+          // Dacă backend-ul nu dă token nou, îl folosim pe cel vechi (deja stocat)
+          handleUserSession(storedToken);
+        }
+      } catch (err: any) {
+        toast.error("Token check failed: " + (err.response?.data?.message || err.message));
+        clearSession();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+  }, [handleUserSession, clearSession, refreshTrigger]);
+
+  const triggerRefresh = () => {
+    setRefreshTrigger((prev) => prev + 1);
   };
 
+  // 5. Login Action
+  const login = async (email: string, password: string) => {
+    try {
+      const response = await api.post(`/auth/login`, {
+        email,
+        password,
+      });
+
+      const newToken = response.data.token;
+      handleUserSession(newToken); // Re-use our centralized helper
+      return { success: true };
+    } catch (err: any) {
+      console.log("Eroare la login:", err?.response?.data);
+      return { success: false, error: err.response?.data?.message || err.message };
+    }
+  };
+
+  // 6. Logout Action
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
+    clearSession();
+    navigate("/login"); // Soft navigation instead of window.reload()
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        loading,
+        login,
+        logout,
+        triggerRefresh,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-};
-
-// Un mic "cârlig" (hook) ca să folosim auth-ul ușor în alte pagini
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth trebuie folosit în interiorul AuthProvider');
-  return context;
 };

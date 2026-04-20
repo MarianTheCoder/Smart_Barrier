@@ -1,23 +1,43 @@
-import { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
-import { generateToken } from "../Utils/generateToken";
+import { Request, Response } from "express";
+import { db } from "../Utils/db";
+import { RowDataPacket } from "mysql2/promise";
 
-const users = [
-  { id: 1, email: "admin@test.com", passwordHash: bcrypt.hashSync("1234", 10) },
-];
+interface UserRow extends RowDataPacket {
+  id: number;
+  nume: string;
+  email: string;
+  password: string;
+}
 
-const loginUser = async (req: Request, res: Response) => {
+export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
+  console.log("Login attempt:", { email }); // Log the email for debugging
+  if (!email || !password) return res.status(400).json({ message: "Toate câmpurile sunt obligatorii." });
 
-  const user = users.find((u) => u.email === email);
-  if (!user) return res.status(401).json({ message: "Utilizatorul nu a fost găsit" });
+  try {
+    const [rows] = await db.execute<UserRow[]>(`SELECT * FROM Utilizatori WHERE email = ?`, [email.trim()]);
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) return res.status(401).json({ message: "Parola este invalidă" });
+    if (rows.length === 0) return res.status(400).json({ message: "Date de autentificare invalide." });
 
-  const token = generateToken(user.id, user.email);
-  res.json({ token, user: { id: user.id, email: user.email } });
+    const user = rows[0];
+    const isPasswordValid = await bcrypt.compare(password, user.parola);
+    if (!isPasswordValid) return res.status(400).json({ message: "Date de autentificare invalide." });
+
+    const tokenPayload = {
+      id: user.id,
+      name: user.nume,
+    };
+
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET!);
+
+    res.status(200).json({
+      message: "Login reușit",
+      token,
+    });
+  } catch (err) {
+    console.log("Eroare la autentificare utilizator:", err);
+    res.status(500).json({ message: "Eroare la baza de date." });
+  }
 };
-
-
-export { loginUser };

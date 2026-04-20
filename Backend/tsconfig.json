@@ -4,7 +4,8 @@
     "module": "commonjs",
     "outDir": "dist",
     "esModuleInterop": true,
-    "strict": true
+    "strict": true,
+    "types": ["node"]
   },
-  "include": ["./**/*.ts"]
+  "include": ["**/*.ts", "**/*.d.ts"]
 }
